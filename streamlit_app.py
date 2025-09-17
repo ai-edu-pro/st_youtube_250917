@@ -32,6 +32,9 @@ def get_setting(key: str, default: str = "") -> str:
 YOUTUBE_API_KEY = get_setting("YOUTUBE_API_KEY", "")
 DEFAULT_REGION = get_setting("REGION_CODE", "KR")
 DEFAULT_MAX_RESULTS = int(get_setting("MAX_RESULTS", "30"))
+# 로그인 자격 정보(선택). 설정되어 있으면 로그인 화면을 표시합니다.
+APP_USERNAME = get_setting("APP_USERNAME", "")
+APP_PASSWORD = get_setting("APP_PASSWORD", "")
 
 YOUTUBE_VIDEOS_ENDPOINT = "https://www.googleapis.com/youtube/v3/videos"
 YOUTUBE_CHANNELS_ENDPOINT = "https://www.googleapis.com/youtube/v3/channels"
@@ -165,10 +168,57 @@ def render_video_item(item: Dict[str, Any], channel_stats_map: Dict[str, Any]):
         st.caption(f"조회수: {views} · 좋아요: {likes} · 댓글: {comments}")
 
 
+def _check_credentials(username: str, password: str) -> bool:
+    if not APP_USERNAME and not APP_PASSWORD:
+        # 자격 정보가 설정되어 있지 않으면 인증을 강제하지 않음
+        return True
+    return username == APP_USERNAME and password == APP_PASSWORD
+
+
+def require_login() -> bool:
+    """APP_USERNAME/APP_PASSWORD가 설정된 경우에만 로그인 요구.
+    세션에 인증 성공 상태가 있으면 True 반환.
+    """
+    if "auth" not in st.session_state:
+        st.session_state.auth = False
+
+    # 자격 정보가 비어 있으면 인증 패스
+    if not APP_USERNAME and not APP_PASSWORD:
+        st.session_state.auth = True
+        return True
+
+    if st.session_state.auth:
+        return True
+
+    with st.form("login_form", clear_on_submit=False):
+        st.subheader("로그인")
+        col1, col2 = st.columns(2)
+        with col1:
+            username = st.text_input("아이디", value="", autocomplete="username")
+        with col2:
+            password = st.text_input("비밀번호", value="", type="password", autocomplete="current-password")
+        submitted = st.form_submit_button("로그인")
+
+        if submitted:
+            if _check_credentials(username, password):
+                st.session_state.auth = True
+                st.success("로그인 성공")
+                st.rerun()
+            else:
+                st.error("아이디 또는 비밀번호가 올바르지 않습니다.")
+
+    st.info("접속을 위해 로그인이 필요합니다.")
+    return False
+
+
 def main():
     st.set_page_config(page_title="YouTube 인기 동영상", page_icon="📺", layout="wide")
     st.title("📺 YouTube 인기 동영상")
     st.caption("간단한 YouTube Data API 예제 · 지역/개수 조절 가능 · 5분 캐시")
+
+    # 로그인 요구 (자격 설정 시)
+    if not require_login():
+        return
 
     validate_env()
 
@@ -204,6 +254,11 @@ def main():
         max_results = st.slider("표시 개수", min_value=5, max_value=50, value=min(DEFAULT_MAX_RESULTS, 30), step=5)
         st.divider()
         refresh = st.button("🔄 새로고침")
+        if st.session_state.get("auth"):
+            if st.button("🚪 로그아웃"):
+                st.session_state.auth = False
+                st.success("로그아웃 되었습니다.")
+                st.rerun()
         if refresh:
             fetch_popular_videos.clear()
             fetch_channel_statistics.clear()
